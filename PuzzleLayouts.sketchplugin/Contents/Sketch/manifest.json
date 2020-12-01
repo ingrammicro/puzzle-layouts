@@ -1,0 +1,20 @@
+{
+    "name": "Puzzle Layouts",
+    "description": "layouts, margings,etc",
+    "author": "Maxim Bazarov",
+    "authorEmail": "max@bazarov.ru",
+    "homepage": "https://github.com/ingrammicro/puzzle-layouts",
+    "identifier": "com.cloudblue.sketch.layouts",
+    "appcast": "https://raw.githubusercontent.com/ingrammicro/puzzle-layouts/master/appcast.xml",
+    "compatibleVersion": "52",
+    "version": "0.0.1",
+    "icon": "icon.png",
+    "commands": [
+        {
+            "script": "menu-on-change.js",
+            "handlers": {
+                "onDocumentChanged": "onDocumentChanged"
+            }
+        }
+    ]
+}
