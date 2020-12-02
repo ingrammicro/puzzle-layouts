@@ -75,13 +75,77 @@ function getChangeParent(document, change) {
 }
 
 function handleGroupChanges(parent) {
-    adjustLayers(parent.layers, true)
+    //adjustLayers(parent.layers, true)
     adjustLayers(parent.layers, false)
 
 
 }
 
 function adjustLayers(layers, isX) {
+    log("ADJUST LAYERS")
+    if (isX)
+        layers = layers.slice().sort((a, b) => a.frame.x + a.frame.width - (b.frame.x + b.frame.width))
+    else
+        layers = layers.slice().sort((a, b) => a.frame.y + a.frame.height - (b.frame.y + b.frame.height))
+
+    const spacerName = "@" + (isX ? "X" : "Y") + "Spacer@"
+    const perpSpacerName = "@" + (isX ? "Y" : "X") + "Spacer@"
+
+
+    let pos = null
+    let oldPos = null
+
+    //log(layers.slice(index + 1))
+    let backLayer = null
+    layers.forEach(function (l) {
+        const isPerpSpacer = l.name.includes(perpSpacerName)
+            || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(perpSpacerName))
+        if (isPerpSpacer) return
+
+        if (null == pos)
+            pos = isX ? l.frame.x : l.frame.y
+
+
+        // Skip cards and other full size layers
+        if (18 == l.sketchObject.resizingConstraint()) {
+            backLayer = l
+            return
+        }
+        //log("name: " + l.name)
+        //log(l.sketchObject.resizingConstraint())
+        /*const c = getLayerConstrains(l)
+        if (isX) {
+            if (c.right) return
+        } else {
+            if (c.bottom) return
+        }*/
+        // if the next object on the same position
+        const lPos = isX ? l.frame.x : l.frame.y
+        if (oldPos != null && lPos == oldPos) {
+            pos = oldPos
+        }
+        //                        
+        const delta = pos - lPos
+        if (isX)
+            l.frame.x += delta
+        else
+            l.frame.y += delta
+        oldPos = pos
+        pos += isX ? l.frame.width : l.frame.height
+    }, this)
+
+    // Check if we need to resize back layer
+    if (backLayer) {
+        // need to increase height of back layer
+        if ((backLayer.frame.y + backLayer.frame.height - 1) != pos) {
+            backLayer.parent.frame.height = pos - backLayer.frame.y
+        }
+    }
+
+}
+
+
+function adjustLayers2(layers, isX) {
     log("ADJUST LAYERS")
     if (isX)
         layers = layers.slice().sort((a, b) => a.frame.x + a.frame.width - (b.frame.x + b.frame.width))
@@ -102,7 +166,7 @@ function adjustLayers(layers, isX) {
         let oldPos = null
 
         //log(layers.slice(index + 1))
-        let backLayers = []
+        let backLayer = null
         layers.slice(index + 1).forEach(function (l) {
             const isPerpSpacer = l.name.includes(perpSpacerName)
                 || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(perpSpacerName))
@@ -110,7 +174,7 @@ function adjustLayers(layers, isX) {
 
             // Skip cards and other full size layers
             if (18 == l.sketchObject.resizingConstraint()) {
-                backLayers.push(l)
+                backLayer = l
                 return
             }
             //log("name: " + l.name)
@@ -136,13 +200,13 @@ function adjustLayers(layers, isX) {
             pos += isX ? l.frame.width : l.frame.height
         }, this)
 
-        // Check if we need to resize back layers
-        backLayers.forEach(function (l) {
+        // Check if we need to resize back layer
+        if (backLayer) {
             // need to increase height of back layer
-            if ((l.frame.y + l.frame.height) < pos) {
-                l.frame.height = pos - l.frame.y
+            if ((backLayer.frame.y + backLayer.frame.height - 1) != pos) {
+                backLayer.parent.frame.height = pos - backLayer.frame.y
             }
-        })
+        }
 
     }, this)
 }
