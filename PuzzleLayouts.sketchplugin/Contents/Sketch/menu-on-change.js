@@ -54,6 +54,8 @@ var onDocumentChanged = function (context) {
                     handleGroupChanges(newParent)
                 } else {
                     log(`New object inserted at ${path}`);
+                    const newParent = sketch.fromNative(change.object()).parent
+                    handleGroupChanges(newParent)
                 }
                 break;
             default:
@@ -84,9 +86,9 @@ function handleGroupChanges(parent) {
 function adjustLayers(layers, isX) {
     log("ADJUST LAYERS")
     if (isX)
-        layers = layers.slice().sort((a, b) => a.frame.x + a.frame.width - (b.frame.x + b.frame.width))
+        layers = layers.slice().sort((a, b) => a.frame.x - b.frame.x)
     else
-        layers = layers.slice().sort((a, b) => a.frame.y + a.frame.height - (b.frame.y + b.frame.height))
+        layers = layers.slice().sort((a, b) => a.frame.y - b.frame.y)
 
     const spacerName = "@" + (isX ? "X" : "Y") + "Spacer@"
     const perpSpacerName = "@" + (isX ? "Y" : "X") + "Spacer@"
@@ -94,54 +96,71 @@ function adjustLayers(layers, isX) {
 
     let pos = null
     let oldPos = null
+    let prevObj = null
 
     //log(layers.slice(index + 1))
     let backLayer = null
     layers.forEach(function (l) {
-        const isPerpSpacer = l.name.includes(perpSpacerName)
-            || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(perpSpacerName))
+        const isPerpSpacer = isSpacer(l, perpSpacerName)
         if (isPerpSpacer) return
-
-        if (null == pos)
-            pos = isX ? l.frame.x : l.frame.y
-
 
         // Skip cards and other full size layers
         if (18 == l.sketchObject.resizingConstraint()) {
             backLayer = l
             return
         }
-        //log("name: " + l.name)
-        //log(l.sketchObject.resizingConstraint())
-        /*const c = getLayerConstrains(l)
-        if (isX) {
-            if (c.right) return
-        } else {
-            if (c.bottom) return
-        }*/
-        // if the next object on the same position
-        const lPos = isX ? l.frame.x : l.frame.y
-        if (oldPos != null && lPos == oldPos) {
+
+        if (null == pos) pos = isX ? l.frame.x : l.frame.y
+        const currPos = isX ? l.frame.x : l.frame.y
+
+        // if the prev object was on the same position and it was spacer
+        const prevWasSpace = false && oldPos != null && currPos == oldPos && !isSpacer(l, spacerName) && isSpacer(prevObj, spacerName)
+        if (prevWasSpace) {
+            // move cursor back
             pos = oldPos
+            if (isX)
+                prevObj.frame.x += l.frame.width
+            else
+                prevObj.frame.y += l.frame.height
         }
         //                        
-        const delta = pos - lPos
+        const delta = pos - currPos
         if (isX)
             l.frame.x += delta
         else
             l.frame.y += delta
         oldPos = pos
+
         pos += isX ? l.frame.width : l.frame.height
+        if (prevWasSpace) pos += isX ? prevObj.frame.width : prevObj.frame.height
+
+        prevObj = l
+        log(l.name)
+        log(pos)
     }, this)
 
-    // Check if we need to resize back layer
-    if (backLayer) {
+    // Check if we need to resize back layer    
+    if ("Artboard" != prevObj.parent.type) {
         // need to increase height of back layer
-        if ((backLayer.frame.y + backLayer.frame.height - 1) != pos) {
-            backLayer.parent.frame.height = pos - backLayer.frame.y
-        }
+        const newDelta = pos - prevObj.parent.frame.height
+        if (newDelta != 0) resizeParent(prevObj.parent, newDelta, isX)
     }
+}
 
+
+function resizeParent(parent, delta, isX) {
+    log("resize parent to " + parent.frame.height + " type=" + parent.type)
+    if (isX)
+        parent.frame.width += delta
+    else
+        parent.frame.height += delta
+    //
+    if ("Artboard" != parent.type) return adjustLayers(parent.parent.layers, isX)
+}
+
+function isSpacer(l, spacerName) {
+    return l.name.includes(spacerName)
+        || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(spacerName))
 }
 
 
