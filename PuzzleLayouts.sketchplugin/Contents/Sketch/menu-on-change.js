@@ -1,3 +1,5 @@
+const NAME_VERTICAL_STACK = "@vs"
+
 var ResizingConstraint = {
     NONE: 0,
     RIGHT: 1 << 0,
@@ -10,16 +12,25 @@ var ResizingConstraint = {
 
 
 const sketch = require('sketch')
+let running = false
 
 var onDocumentChanged = function (context) {
-    const document = require('sketch').getSelectedDocument()
+    if (running) return
 
-    var changes = context.actionContext
+    const document = require('sketch').getSelectedDocument()
+    running = true
+    log("RUNNING")
+
+    // take the only last change (TODO: RESOLVE IT!!!)
+    var changes = context.actionContext.slice(-1) //.sort((a, b) => { a.fullPath().length > b.fullPath().length ? -1 : 1 })
+
+
     for (var i = 0; i < changes.length; i++) {
         var change = changes[i];
         var path = change.fullPath();
         var type = change.type();
         let parent = null
+        let obj = null
 
         switch (type) {
             case 1: // Property chang
@@ -28,10 +39,13 @@ var onDocumentChanged = function (context) {
                 const i = path.indexOf("].overrideValues")
                 if (i >= 0)
                     parent = getChangeParent(document, change)
-                else
-                    parent = sketch.fromNative(change.object()).parent
+                else {
+                    obj = sketch.fromNative(change.object())
+                    parent = "Artboard" != obj.type && "Group" != obj.type ? obj.parent : obj
+                    log("change obj: " + obj.name)
+                }
                 //
-                handleGroupChanges(parent)
+                handleGroupChanges(parent, null, obj)
                 break;
             case 2: // Deletion
                 // Objects that got moved in the tree are both deleted from the tree
@@ -60,8 +74,13 @@ var onDocumentChanged = function (context) {
                 break;
             default:
                 log(`⚠️ Unexpected change type ${type}`);
+                break
         }
+        //break
     }
+
+    running = false
+    log("DONE")
 };
 
 
@@ -76,14 +95,13 @@ function getChangeParent(document, change) {
     return eval(`document.${path.match(/(.*)\./)[1]}`)
 }
 
-function handleGroupChanges(parent) {
+function handleGroupChanges(parent, isX = null, obj) {
     //adjustLayers(parent.layers, true)
-    adjustLayers(parent.layers, false)
-
-
+    log("handleGroupChanges: " + parent.name)
+    if ((null == isX || !isX) && parent.name.includes(NAME_VERTICAL_STACK)) adjustLayers(parent.layers, false, obj)
 }
 
-function adjustLayers(layers, isX) {
+function adjustLayers(layers, isX, changedObj) {
     log("ADJUST LAYERS")
     if (isX)
         layers = layers.slice().sort((a, b) => a.frame.x - b.frame.x)
@@ -93,9 +111,11 @@ function adjustLayers(layers, isX) {
     const spacerName = "@" + (isX ? "X" : "Y") + "Spacer@"
     const perpSpacerName = "@" + (isX ? "Y" : "X") + "Spacer@"
 
+    const parent = layers[0].parent
 
-    let pos = null
-    let oldPos = null
+    let nextPos = null
+    let prevPos = null
+    let prevSize = null
     let prevObj = null
 
     //log(layers.slice(index + 1))
@@ -110,52 +130,57 @@ function adjustLayers(layers, isX) {
             return
         }
 
-        if (null == pos) pos = isX ? l.frame.x : l.frame.y
         const currPos = isX ? l.frame.x : l.frame.y
+        const currSize = isX ? l.frame.width : l.frame.height
+        if (null == nextPos) nextPos = currPos
 
-        // if the prev object was on the same position and it was spacer
-        const prevWasSpace = false && oldPos != null && currPos == oldPos && !isSpacer(l, spacerName) && isSpacer(prevObj, spacerName)
+        // if the prev object was space
+        const prevWasSpace = prevObj != null && !isSpacer(l, spacerName) && isSpacer(prevObj, spacerName)
+            // check if the current obj position inside a previous spacer
+            && prevPos < currPos && (prevPos + prevSize - 1) >= currPos
+
+        log(prevPos + prevSize - 1)
         if (prevWasSpace) {
             // move cursor back
-            pos = oldPos
+            log("MOVED prev spacer down")
+            nextPos -= prevSize
             if (isX)
-                prevObj.frame.x += l.frame.width
+                prevObj.frame.x += currSize
             else
-                prevObj.frame.y += l.frame.height
+                prevObj.frame.y += currSize
         }
-        //                        
-        const delta = pos - currPos
+        //                                
         if (isX)
-            l.frame.x += delta
+            l.frame.x = nextPos
         else
-            l.frame.y += delta
-        oldPos = pos
+            l.frame.y = nextPos
 
-        pos += isX ? l.frame.width : l.frame.height
-        if (prevWasSpace) pos += isX ? prevObj.frame.width : prevObj.frame.height
+        nextPos += currSize
+        if (prevWasSpace) nextPos += prevSize
+
+        prevPos = currPos
+        prevSize = currSize
 
         prevObj = l
-        log(l.name)
-        log(pos)
+        log(l.name + " currPos=" + currPos + " size=" + currSize + " nextPos=" + nextPos)
     }, this)
 
     // Check if we need to resize back layer    
-    if ("Artboard" != prevObj.parent.type) {
-        // need to increase height of back layer
-        const newDelta = pos - prevObj.parent.frame.height
-        if (newDelta != 0) resizeParent(prevObj.parent, newDelta, isX)
+    if ("Artboard" != parent.type) {
+        // need to adjust parent size
+        resizeParent(parent, nextPos, isX)
     }
 }
 
 
-function resizeParent(parent, delta, isX) {
-    log("resize parent to " + parent.frame.height + " type=" + parent.type)
+function resizeParent(parent, newSize, isX) {
+    log("RESIZE PARENT " + parent.name + " from " + parent.frame.height + " to=" + newSize)
     if (isX)
-        parent.frame.width += delta
+        parent.frame.width = newSize
     else
-        parent.frame.height += delta
+        parent.frame.height = newSize
     //
-    if ("Artboard" != parent.type) return adjustLayers(parent.parent.layers, isX)
+    if ("Artboard" != parent.type) return handleGroupChanges(parent.parent, isX)
 }
 
 function isSpacer(l, spacerName) {
@@ -163,72 +188,6 @@ function isSpacer(l, spacerName) {
         || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(spacerName))
 }
 
-
-function adjustLayers2(layers, isX) {
-    log("ADJUST LAYERS")
-    if (isX)
-        layers = layers.slice().sort((a, b) => a.frame.x + a.frame.width - (b.frame.x + b.frame.width))
-    else
-        layers = layers.slice().sort((a, b) => a.frame.y + a.frame.height - (b.frame.y + b.frame.height))
-
-    const spacerName = "@" + (isX ? "X" : "Y") + "Spacer@"
-    const perpSpacerName = "@" + (isX ? "Y" : "X") + "Spacer@"
-
-    layers.forEach(function (child, index) {
-        log("child name: " + child.name)
-        const isSpacer = child.name.includes(spacerName)
-            || ("SymbolInstance" == child.type && child.master && child.master.layers[0] && child.master.layers[0].name.includes(spacerName))
-
-        if (!isSpacer) return
-
-        let pos = isX ? child.frame.x + child.frame.width : child.frame.y + child.frame.height
-        let oldPos = null
-
-        //log(layers.slice(index + 1))
-        let backLayer = null
-        layers.slice(index + 1).forEach(function (l) {
-            const isPerpSpacer = l.name.includes(perpSpacerName)
-                || ("SymbolInstance" == l.type && l.master && l.master.layers[0] && l.master.layers[0].name.includes(perpSpacerName))
-            if (isPerpSpacer) return
-
-            // Skip cards and other full size layers
-            if (18 == l.sketchObject.resizingConstraint()) {
-                backLayer = l
-                return
-            }
-            //log("name: " + l.name)
-            //log(l.sketchObject.resizingConstraint())
-            /*const c = getLayerConstrains(l)
-            if (isX) {
-                if (c.right) return
-            } else {
-                if (c.bottom) return
-            }*/
-            // if the next object on the same position
-            const lPos = isX ? l.frame.x : l.frame.y
-            if (oldPos != null && lPos == oldPos) {
-                pos = oldPos
-            }
-            //                        
-            const delta = pos - lPos
-            if (isX)
-                l.frame.x += delta
-            else
-                l.frame.y += delta
-            oldPos = pos
-            pos += isX ? l.frame.width : l.frame.height
-        }, this)
-
-        // Check if we need to resize back layer
-        if (backLayer) {
-            // need to increase height of back layer
-            if ((backLayer.frame.y + backLayer.frame.height - 1) != pos) {
-                backLayer.parent.frame.height = pos - backLayer.frame.y
-            }
-        }
-
-    }, this)
-}
 
 function getLayerConstrains(layer) {
     const resizingConstraint = 63 ^ layer.sketchObject.resizingConstraint()
