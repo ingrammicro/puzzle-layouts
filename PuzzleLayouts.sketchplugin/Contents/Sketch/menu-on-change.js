@@ -1,4 +1,7 @@
 const NAME_VERTICAL_STACK = "@vs"
+const NAME_HORIZONTAL_STACK = "@hs"
+const HORIZ = true
+const VERT = false
 
 var ResizingConstraint = {
     NONE: 0,
@@ -24,7 +27,6 @@ var onDocumentChanged = function (context) {
     // take the only last change (TODO: RESOLVE IT!!!)
     var changes = context.actionContext.slice(-1) //.sort((a, b) => { a.fullPath().length > b.fullPath().length ? -1 : 1 })
 
-
     for (var i = 0; i < changes.length; i++) {
         var change = changes[i];
         var path = change.fullPath();
@@ -45,7 +47,7 @@ var onDocumentChanged = function (context) {
                     log("change obj: " + obj.name)
                 }
                 //
-                handleGroupChanges(parent, null, obj)
+                handleGroupChanges(parent)
                 break;
             case 2: // Deletion
                 // Objects that got moved in the tree are both deleted from the tree
@@ -95,21 +97,29 @@ function getChangeParent(document, change) {
     return eval(`document.${path.match(/(.*)\./)[1]}`)
 }
 
-function handleGroupChanges(parent, isX = null, obj = null) {
+function handleGroupChanges(parent) {
     //adjustLayers(parent.layers, true)
     log("handleGroupChanges: " + parent.name)
-    if ((null == isX || !isX) && parent.name.includes(NAME_VERTICAL_STACK)) adjustLayers(parent.layers, isX, obj)
+    if (parent.name.includes(NAME_VERTICAL_STACK))
+        adjustLayers(parent.layers, VERT)
+    else if (parent.name.includes(NAME_HORIZONTAL_STACK))
+        adjustLayers(parent.layers, HORIZ)
 }
 
-function adjustLayers(layers, isX, changedObj) {
-    log("ADJUST LAYERS")
-    if (isX)
-        layers = layers.slice().sort((a, b) => a.frame.x - b.frame.x)
-    else
-        layers = layers.slice().sort((a, b) => a.frame.y - b.frame.y)
+function sortVert(a, b) {
+    return a.frame.y - b.frame.y
+}
 
-    const spacerName = "@" + (isX ? "X" : "Y") + "Spacer@"
-    const perpSpacerName = "@" + (isX ? "Y" : "X") + "Spacer@"
+function sortHoriz(a, b) {
+    return a.frame.x - b.frame.x
+}
+
+function adjustLayers(layers, dir) {
+    log("ADJUST LAYERS")
+    layers = layers.slice().sort(VERT == dir ? sortVert : sortHoriz)
+
+    const spacerName = VERT == dir ? "@YSpacer@" : "@XSpacer@"
+    const perpSpacerName = VERT == dir ? "@XSpacer@" : "@YSpacer@"
 
     const parent = layers[0].parent
 
@@ -118,20 +128,22 @@ function adjustLayers(layers, isX, changedObj) {
     let prevSize = null
     let prevObj = null
 
+    let perpSpacers = []
+    let spacers = []
+
     //log(layers.slice(index + 1))
-    let backLayer = null
     layers.forEach(function (l) {
         const isPerpSpacer = isSpacer(l, perpSpacerName)
-        if (isPerpSpacer) return
-
-        // Skip cards and other full size layers
-        if (18 == l.sketchObject.resizingConstraint()) {
-            backLayer = l
+        if (isPerpSpacer) {
+            perpSpacers.push(l)
             return
         }
+        if (isSpacer(l, spacerName)) {
+            spacers.push(l)
+        }
 
-        const currPos = isX ? l.frame.x : l.frame.y
-        const currSize = isX ? l.frame.width : l.frame.height
+        const currPos = VERT == dir ? l.frame.y : l.frame.x
+        const currSize = VERT == dir ? l.frame.height : l.frame.width
         if (null == nextPos) nextPos = currPos
 
         // if the prev object was space
@@ -139,21 +151,17 @@ function adjustLayers(layers, isX, changedObj) {
             // check if the current obj position inside a previous spacer
             && prevPos < currPos && (prevPos + prevSize - 1) >= currPos
 
-        log(prevPos + prevSize - 1)
         if (prevWasSpace) {
             // move cursor back
             log("MOVED prev spacer down")
             nextPos -= prevSize
-            if (isX)
-                prevObj.frame.x += currSize
-            else
-                prevObj.frame.y += currSize
+            if (VERT == dir) prevObj.frame.y += currSize; else prevObj.frame.x += currSize;
         }
         //                                
-        if (isX)
-            l.frame.x = nextPos
-        else
-            l.frame.y = nextPos
+        if (nextPos != currPos) {
+            log("Resized " + l.name)
+            if (VERT == dir) l.frame.y = nextPos; else l.frame.x = nextPos
+        }
 
         nextPos += currSize
         if (prevWasSpace) nextPos += prevSize
@@ -165,22 +173,32 @@ function adjustLayers(layers, isX, changedObj) {
         log(l.name + " currPos=" + currPos + " size=" + currSize + " nextPos=" + nextPos)
     }, this)
 
+
+    // Resize perp spacers to full group size
+    perpSpacers.forEach(function (l) {
+        if (VERT == dir) l.frame.height = nextPos - l.frame.y; else l.frame.width = nextPos - l.frame.x;
+    }, this)
+
+    // Resize perp spacers to full group size
+    spacers.forEach(function (l) {
+        if (VERT == dir) l.frame.width = parent.frame.width; else l.frame.height = parent.frame.height
+    }, this)
+
     // Check if we need to resize back layer    
     if ("Artboard" != parent.type) {
         // need to adjust parent size
-        resizeParent(parent, nextPos, isX)
+        resizeParent(parent, nextPos, dir)
     }
 }
 
 
-function resizeParent(parent, newSize, isX) {
-    log("RESIZE PARENT " + parent.name + " from " + parent.frame.height + " to=" + newSize)
-    if (isX)
-        parent.frame.width = newSize
-    else
-        parent.frame.height = newSize
+function resizeParent(parent, newSize, dir) {
+    //if (parent.name == "overview @vs") return
+    if (VERT == dir) parent.frame.height = newSize; else parent.frame.width = newSize
     //
-    //if ("Artboard" != parent.type) return handleGroupChanges(parent.parent, isX)
+    if ("Artboard" != parent.type) {
+        return handleGroupChanges(parent.parent)
+    }
 }
 
 function isSpacer(l, spacerName) {
