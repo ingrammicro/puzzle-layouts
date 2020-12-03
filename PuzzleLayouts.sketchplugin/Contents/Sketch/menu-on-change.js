@@ -95,10 +95,10 @@ function getChangeParent(document, change) {
     return eval(`document.${path.match(/(.*)\./)[1]}`)
 }
 
-function handleGroupChanges(parent, isX = null, obj) {
+function handleGroupChanges(parent, isX = null, obj = null) {
     //adjustLayers(parent.layers, true)
     log("handleGroupChanges: " + parent.name)
-    if ((null == isX || !isX) && parent.name.includes(NAME_VERTICAL_STACK)) adjustLayers(parent.layers, false, obj)
+    if ((null == isX || !isX) && parent.name.includes(NAME_VERTICAL_STACK)) adjustLayers(parent.layers, isX, obj)
 }
 
 function adjustLayers(layers, isX, changedObj) {
@@ -180,7 +180,7 @@ function resizeParent(parent, newSize, isX) {
     else
         parent.frame.height = newSize
     //
-    if ("Artboard" != parent.type) return handleGroupChanges(parent.parent, isX)
+    //if ("Artboard" != parent.type) return handleGroupChanges(parent.parent, isX)
 }
 
 function isSpacer(l, spacerName) {
