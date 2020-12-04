@@ -131,6 +131,8 @@ function adjustLayers(layers, dir) {
     let perpSpacers = []
     let spacers = []
 
+    let maxHeight = 0
+
     //log(layers.slice(index + 1))
     layers.forEach(function (l) {
         const isPerpSpacer = isSpacer(l, perpSpacerName)
@@ -140,6 +142,9 @@ function adjustLayers(layers, dir) {
         }
         if (isSpacer(l, spacerName)) {
             spacers.push(l)
+        } else {
+            const currHeight = l.frame.y + l.frame.height
+            if (currHeight > maxHeight) maxHeight = currHeight
         }
 
         const currPos = VERT == dir ? l.frame.y : l.frame.x
@@ -182,7 +187,9 @@ function adjustLayers(layers, dir) {
     // Resize perp spacers to full group size
     spacers.forEach(function (l) {
         if (VERT == dir) l.frame.width = parent.frame.width; else l.frame.height = parent.frame.height
+        if (HORIZ == dir) l.frame.height = maxHeight
     }, this)
+    if (HORIZ == dir) parent.adjustToFit()
 
     // Check if we need to resize back layer    
     if ("Artboard" != parent.type) {
